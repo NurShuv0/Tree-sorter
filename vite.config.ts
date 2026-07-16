@@ -31,6 +31,23 @@ export default defineConfig({
     },
   },
 
+  server: {
+    proxy: {
+      // AI chat requests → Express backend (port 5000)
+      '/api/chat': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+      },
+      // Authentication requests → Django backend (port 8000)
+      '/api/auth': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
+  },
+
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })

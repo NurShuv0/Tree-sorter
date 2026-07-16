@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router';
-import { Search, Sprout, ArrowRight } from 'lucide-react';
+import { Search, Sprout, ArrowRight, Bot, ScanSearch } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { PlantCard } from '../components/PlantCard';
@@ -116,6 +116,68 @@ export function HomePage() {
           <div className="grid md:grid-cols-2 gap-6">
             <WeatherCard weather={weather} />
             <DailyTip />
+          </div>
+        </section>
+
+        {/* Smart Tools */}
+        <section className="mb-16">
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="mb-8 max-w-2xl"
+          >
+            <h2 className="text-3xl font-bold text-foreground">Smart Tools for Healthier Trees</h2>
+            <p className="mt-3 text-muted-foreground">
+              Use AI-assisted guidance to understand your trees, identify symptoms, and take better care of your garden.
+            </p>
+          </motion.div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.3 }}
+              whileHover={{ y: -4 }}
+              className="group rounded-2xl border bg-card p-6 shadow-sm transition-colors hover:border-primary/45"
+            >
+              <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                <Bot className="size-6" />
+              </div>
+              <h3 className="mt-5 text-xl font-semibold text-foreground">Ask the AI Tree Guide</h3>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
+                Get clear answers about tree care, soil, watering, pruning, seasonal care, and common symptoms.
+              </p>
+              <Link to="/tree-assistant" className="mt-5 inline-flex">
+                <Button>
+                  Start a Conversation
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                </Button>
+              </Link>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.3, delay: 0.08 }}
+              whileHover={{ y: -4 }}
+              className="group rounded-2xl border bg-card p-6 shadow-sm transition-colors hover:border-primary/45"
+            >
+              <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                <ScanSearch className="size-6" />
+              </div>
+              <h3 className="mt-5 text-xl font-semibold text-foreground">Scan Tree Diseases</h3>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-muted-foreground">
+                Upload a photo of affected leaves, bark, branches, or fruit for a preliminary visual health screening.
+              </p>
+              <Link to="/disease-scan" className="mt-5 inline-flex">
+                <Button variant="outline">
+                  Scan a Photo
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                </Button>
+              </Link>
+            </motion.div>
           </div>
         </section>
 
