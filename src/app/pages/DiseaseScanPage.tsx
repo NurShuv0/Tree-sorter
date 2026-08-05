@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import {
   AlertTriangle,
@@ -8,6 +8,7 @@ import {
   Droplets,
   FileImage,
   Leaf,
+  Loader2,
   Microscope,
   Scissors,
   ShieldCheck,
@@ -27,6 +28,9 @@ import { Input } from '../components/ui/input';
 import { Progress } from '../components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Separator } from '../components/ui/separator';
+import { classifyImage, preloadModel } from '@/lib/plantDiseaseModel';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export type DiseaseScanResult = {
   diagnosis: string;
@@ -37,6 +41,7 @@ export type DiseaseScanResult = {
   immediateSteps: string[];
   preventionTips: string[];
   alternateConditions: string[];
+  inferenceMs?: number;
 };
 
 type ImagePreview = {
@@ -44,6 +49,10 @@ type ImagePreview = {
   size: number;
   url: string;
 };
+
+type ModelStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const symptomOptions = [
   'Yellow leaves',
@@ -57,36 +66,10 @@ const symptomOptions = [
   'Fruit rot',
 ];
 
-const defaultResult: DiseaseScanResult = {
-  diagnosis: 'Likely Leaf Spot Disease',
-  scientificCategory: 'Possible fungal leaf infection',
-  confidence: 87,
-  severity: 'Moderate',
-  observations: [
-    'Dark circular leaf spots',
-    'Yellowing around affected areas',
-    'Possible moisture-related fungal spread',
-  ],
-  immediateSteps: [
-    'Remove heavily affected leaves',
-    'Avoid watering leaves directly',
-    'Improve airflow around the tree',
-    'Keep fallen infected leaves away from the soil',
-    'Monitor new growth for 7–10 days',
-  ],
-  preventionTips: [
-    'Water near the root zone',
-    'Prune dense branches for airflow',
-    'Clean gardening tools before reuse',
-    'Avoid excess nitrogen fertilizer during disease stress',
-  ],
-  alternateConditions: ['Nutrient deficiency', 'Sun scorch', 'Pest damage', 'Powdery mildew'],
-};
-
 const scanSteps = [
-  'Checking visible leaf and bark patterns',
-  'Comparing symptoms with common plant diseases',
-  'Preparing care guidance',
+  'Loading AI model into browser',
+  'Preprocessing image for inference',
+  'Classifying with EfficientNetV2B0',
 ];
 
 function formatBytes(bytes: number) {
@@ -94,11 +77,14 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export function DiseaseScanPage() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const scanTimersRef = useRef<number[]>([]);
+  const imgRef = useRef<HTMLImageElement>(null);
+
   const [image, setImage] = useState<ImagePreview | null>(null);
   const [treeName, setTreeName] = useState('');
   const [affectedArea, setAffectedArea] = useState('Not sure');
@@ -107,15 +93,31 @@ export function DiseaseScanPage() {
   const [scanProgress, setScanProgress] = useState(0);
   const [isScanning, setIsScanning] = useState(false);
   const [result, setResult] = useState<DiseaseScanResult | null>(null);
+  const [modelStatus, setModelStatus] = useState<ModelStatus>('idle');
 
-  useEffect(() => () => {
-    scanTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+  // ── Model preload on mount ────────────────────────────────────────────────
+  useEffect(() => {
+    setModelStatus('loading');
+    preloadModel();
+    // We use a small polling approach to detect when the model singleton is ready
+    // without exposing internal state — the classify call itself will await it.
+    // We show "loading" just until the WASM is initialised (usually < 5s on CDN).
+    const check = setInterval(() => {
+      // Once classifyImage succeeds on a tiny call we know it's ready.
+      // Instead, just resolve the loading state after a brief window —
+      // the actual readiness is handled inside classifyImage's loadModel() await.
+      setModelStatus('ready');
+      clearInterval(check);
+    }, 3500);
+    return () => clearInterval(check);
   }, []);
 
+  // ── Revoke object URL on image change ────────────────────────────────────
   useEffect(() => () => {
     if (image?.url) URL.revokeObjectURL(image.url);
   }, [image?.url]);
 
+  // ── File handling ─────────────────────────────────────────────────────────
   const selectFile = (file?: File) => {
     if (!file) return;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
@@ -126,7 +128,6 @@ export function DiseaseScanPage() {
       toast.error('Please choose an image smaller than 10 MB.');
       return;
     }
-
     setResult(null);
     setScanProgress(0);
     setImage({ name: file.name, size: file.size, url: URL.createObjectURL(file) });
@@ -142,28 +143,74 @@ export function DiseaseScanPage() {
   };
 
   const toggleSymptom = (symptom: string) => {
-    setSymptoms((current) => current.includes(symptom)
-      ? current.filter((item) => item !== symptom)
-      : [...current, symptom]);
+    setSymptoms((current) =>
+      current.includes(symptom) ? current.filter((item) => item !== symptom) : [...current, symptom],
+    );
   };
 
-  const startScan = () => {
-    if (!image) return;
+  // ── Real TFLite inference ─────────────────────────────────────────────────
+  const startScan = useCallback(async () => {
+    if (!image || !imgRef.current) return;
+
     setResult(null);
     setIsScanning(true);
     setScanProgress(12);
-    scanTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    scanTimersRef.current = [
-      window.setTimeout(() => setScanProgress(42), 550),
-      window.setTimeout(() => setScanProgress(74), 1150),
-      window.setTimeout(() => setScanProgress(100), 1650),
-      window.setTimeout(() => {
-        setResult(defaultResult);
-        setIsScanning(false);
-        toast.success('Mock screening result ready');
-      }, 2100),
-    ];
-  };
+
+    try {
+      // Step 1: draw image onto offscreen canvas so we have a stable source
+      setScanProgress(30);
+      const canvas = document.createElement('canvas');
+      const imgEl = imgRef.current;
+      canvas.width = imgEl.naturalWidth || imgEl.width;
+      canvas.height = imgEl.naturalHeight || imgEl.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas 2D context unavailable');
+      ctx.drawImage(imgEl, 0, 0);
+
+      setScanProgress(55);
+
+      // Step 2: classify — loadModel() is awaited inside here (cached after first call)
+      const classifyResult = await classifyImage(canvas, symptoms, treeName);
+
+      setScanProgress(90);
+
+      // Step 3: map ClassifyResult → DiseaseScanResult for the existing result panel
+      const { label, confidence, top5, inferenceMs } = classifyResult;
+
+      const scanResult: DiseaseScanResult = {
+        diagnosis: label.displayName,
+        scientificCategory: label.scientificCategory,
+        confidence: Math.round(confidence * 10) / 10,
+        severity: label.severity,
+        observations: label.observations,
+        immediateSteps: label.immediateSteps,
+        preventionTips: label.preventionTips,
+        // top5 alternate conditions (excluding the top-1 prediction itself)
+        alternateConditions: top5
+          .filter((p) => p.label.displayName !== label.displayName)
+          .map((p) => `${p.label.displayName} (${p.confidence.toFixed(1)}%)`)
+          .slice(0, 4),
+        inferenceMs,
+      };
+
+      setScanProgress(100);
+      await new Promise((r) => setTimeout(r, 250)); // brief pause for 100% animation
+
+      setResult(scanResult);
+      setIsScanning(false);
+
+      if (label.isHealthy) {
+        toast.success(`✅ ${label.plant} looks healthy! (${scanResult.confidence}% confidence)`);
+      } else {
+        toast.warning(`⚠️ ${label.displayName} detected with ${scanResult.confidence}% confidence.`);
+      }
+    } catch (err: any) {
+      console.error('[DiseaseScan] Inference error:', err);
+      setIsScanning(false);
+      setScanProgress(0);
+      toast.error(`Scan failed: ${err?.message ?? 'Unknown error. Check console for details.'}`);
+    }
+  }, [image]);
 
   const resetForNewScan = () => {
     removeImage();
@@ -172,7 +219,12 @@ export function DiseaseScanPage() {
     setSymptoms([]);
   };
 
-  const stepIndex = scanProgress < 42 ? 0 : scanProgress < 74 ? 1 : 2;
+  const stepIndex = scanProgress < 40 ? 0 : scanProgress < 75 ? 1 : 2;
+
+  // Build the AI assistant question dynamically from real result
+  const aiQuestion = result
+    ? `My tree scan detected "${result.diagnosis}" with ${result.confidence}% confidence. What should I do next?`
+    : '';
 
   return (
     <main className="min-h-screen bg-background">
@@ -192,7 +244,23 @@ export function DiseaseScanPage() {
             <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
               Upload a clear image of the affected area and get a visual disease screening with care recommendations.
             </p>
-            <div className="mt-5 flex max-w-2xl gap-2 rounded-xl border border-primary/15 bg-card/65 px-4 py-3 text-sm leading-6 text-muted-foreground backdrop-blur">
+
+            {/* Model status banner */}
+            <AnimatePresence>
+              {modelStatus === 'loading' && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mt-4 flex items-center gap-2.5 rounded-xl border border-primary/15 bg-card/65 px-4 py-3 text-sm text-muted-foreground backdrop-blur"
+                >
+                  <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+                  <span>Loading AI model into browser — this takes a few seconds on first visit…</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="mt-4 flex max-w-2xl gap-2 rounded-xl border border-primary/15 bg-card/65 px-4 py-3 text-sm leading-6 text-muted-foreground backdrop-blur">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-primary" />
               Results are preliminary and should not replace advice from a certified agricultural specialist.
             </div>
@@ -261,7 +329,14 @@ export function DiseaseScanPage() {
                 ) : (
                   <div className="space-y-4">
                     <div className="relative overflow-hidden rounded-2xl border bg-muted/20">
-                      <img src={image.url} alt="Selected tree area for disease screening" className="max-h-[460px] w-full object-contain" />
+                      {/* Hidden img used as canvas source for inference */}
+                      <img
+                        ref={imgRef}
+                        src={image.url}
+                        alt="Selected tree area for disease screening"
+                        className="max-h-[460px] w-full object-contain"
+                        crossOrigin="anonymous"
+                      />
                       {isScanning && (
                         <div className="absolute inset-0 overflow-hidden bg-primary/5">
                           <motion.div
@@ -356,9 +431,15 @@ export function DiseaseScanPage() {
                   </div>
                 </div>
 
-                <Button type="button" size="lg" className="mt-6 w-full sm:w-auto" onClick={startScan} disabled={!image || isScanning}>
-                  <Microscope className="size-4" />
-                  {isScanning ? 'Analyzing tree health…' : 'Scan for Disease'}
+                <Button
+                  type="button"
+                  size="lg"
+                  className="mt-6 w-full sm:w-auto"
+                  onClick={startScan}
+                  disabled={!image || isScanning}
+                >
+                  {isScanning ? <Loader2 className="size-4 animate-spin" /> : <Microscope className="size-4" />}
+                  {isScanning ? 'Analyzing…' : 'Scan for Disease'}
                 </Button>
               </CardContent>
             </Card>
@@ -370,8 +451,8 @@ export function DiseaseScanPage() {
                     <CardContent className="pt-6">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-foreground">Analyzing tree health…</p>
-                          <p className="mt-1 text-sm text-muted-foreground">This frontend preview simulates visual screening.</p>
+                          <p className="font-semibold text-foreground">Running on-device AI inference…</p>
+                          <p className="mt-1 text-sm text-muted-foreground">EfficientNetV2B0 model running in your browser via WebAssembly.</p>
                         </div>
                         <Badge variant="outline" className="border-primary/20 text-primary">{scanProgress}% complete</Badge>
                       </div>
@@ -408,7 +489,7 @@ export function DiseaseScanPage() {
                     <Leaf className="size-5" />
                   </div>
                   <CardTitle className="mt-3 text-xl">Best photo tips</CardTitle>
-                  <CardDescription>Clear photos make a preliminary visual screening more useful.</CardDescription>
+                  <CardDescription>Clear photos make the on-device AI screening more accurate.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {[
@@ -427,19 +508,30 @@ export function DiseaseScanPage() {
                   <Separator />
                   <div className="flex gap-3 rounded-xl border border-primary/12 bg-primary/[0.045] px-3 py-3">
                     <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-                    <p className="text-xs leading-5 text-muted-foreground">No photo is uploaded or sent anywhere in this frontend prototype.</p>
+                    <p className="text-xs leading-5 text-muted-foreground">All inference runs locally in your browser — no photo is uploaded to any server.</p>
                   </div>
                 </CardContent>
               </Card>
             ) : (
               <Card className="overflow-hidden border-primary/20 shadow-lg shadow-primary/5">
-                <div className="border-b bg-primary/[0.06] px-6 py-5">
+                <div className={`border-b px-6 py-5 ${result.severity === 'Healthy' ? 'bg-green-500/[0.06]' : 'bg-primary/[0.06]'}`}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <div className="flex size-9 items-center justify-center rounded-full bg-primary/12 text-primary"><Microscope className="size-4" /></div>
-                        <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
-                          <AlertTriangle className="size-3" />
+                        <div className={`flex size-9 items-center justify-center rounded-full ${result.severity === 'Healthy' ? 'bg-green-500/12 text-green-600 dark:text-green-400' : 'bg-primary/12 text-primary'}`}>
+                          {result.severity === 'Healthy' ? <CheckCircle2 className="size-4" /> : <Microscope className="size-4" />}
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={
+                            result.severity === 'Healthy'
+                              ? 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-300'
+                              : result.severity === 'Severe'
+                              ? 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+                              : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                          }
+                        >
+                          {result.severity !== 'Healthy' && <AlertTriangle className="size-3" />}
                           {result.severity}
                         </Badge>
                       </div>
@@ -448,7 +540,10 @@ export function DiseaseScanPage() {
                     </div>
                     <div className="rounded-xl border bg-card px-3 py-2 text-right">
                       <p className="text-lg font-semibold text-primary">{result.confidence}%</p>
-                      <p className="text-[11px] text-muted-foreground">visual match</p>
+                      <p className="text-[11px] text-muted-foreground">confidence</p>
+                      {result.inferenceMs && (
+                        <p className="text-[10px] text-muted-foreground/60">{result.inferenceMs.toFixed(0)}ms</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -458,25 +553,29 @@ export function DiseaseScanPage() {
                   <ResultSection icon={<ShieldCheck className="size-4" />} title="Immediate care steps" items={result.immediateSteps} numbered />
                   <ResultSection icon={<Leaf className="size-4" />} title="Prevention tips" items={result.preventionTips} />
 
-                  <Accordion type="single" collapsible className="rounded-xl border px-4">
-                    <AccordionItem value="alternates" className="border-0">
-                      <AccordionTrigger className="py-4 hover:no-underline">
-                        <span className="flex items-center gap-2"><Microscope className="size-4 text-primary" />Other possible conditions</span>
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="flex flex-wrap gap-2 pb-1">
-                          {result.alternateConditions.map((condition) => <Badge key={condition} variant="outline" className="text-muted-foreground">{condition}</Badge>)}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
+                  {result.alternateConditions.length > 0 && (
+                    <Accordion type="single" collapsible className="rounded-xl border px-4">
+                      <AccordionItem value="alternates" className="border-0">
+                        <AccordionTrigger className="py-4 hover:no-underline">
+                          <span className="flex items-center gap-2"><Microscope className="size-4 text-primary" />Other possible conditions</span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="flex flex-wrap gap-2 pb-1">
+                            {result.alternateConditions.map((condition) => <Badge key={condition} variant="outline" className="text-muted-foreground">{condition}</Badge>)}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  )}
 
                   <div className="rounded-2xl border border-primary/20 bg-primary/[0.06] p-4">
                     <div className="flex gap-3">
                       <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary"><Camera className="size-4" /></div>
                       <div>
                         <p className="text-sm font-semibold text-foreground">Recommended next action</p>
-                        <p className="mt-1 text-sm leading-6 text-muted-foreground">Take a close-up photo of the affected leaf and compare new symptoms after one week.</p>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          Take a close-up photo of the affected leaf and compare new symptoms after one week. Consult a local agricultural specialist for severe or fast-spreading infections.
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -494,7 +593,7 @@ export function DiseaseScanPage() {
                     <Button
                       type="button"
                       className="flex-1"
-                      onClick={() => navigate('/tree-assistant?question=My%20tree%20scan%20suggests%20possible%20Leaf%20Spot%20Disease%20with%2087%25%20confidence.%20What%20should%20I%20do%20next%3F')}
+                      onClick={() => navigate(`/tree-assistant?question=${encodeURIComponent(aiQuestion)}`)}
                     >
                       Ask AI About This Result
                       <ChevronRight className="size-4" />

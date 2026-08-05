@@ -118,6 +118,26 @@ test('Retry action: extracts message content and filters out the failed item', (
   assert.strictEqual(remainingMessages.find((m) => m.id === '3'), undefined);
 });
 
+import { cleanJsonResponse, generateLocalKnowledgeResponse } from '../server/server';
+
+test('JSON cleaning: removes markdown code blocks and whitespace', () => {
+  const inputWithCodeBlock = '```json\n{"message": "Hello", "suggestedActions": [], "followUpQuestion": ""}\n```';
+  const cleaned = cleanJsonResponse(inputWithCodeBlock);
+  assert.strictEqual(cleaned, '{"message": "Hello", "suggestedActions": [], "followUpQuestion": ""}');
+
+  const parsed = JSON.parse(cleaned);
+  assert.strictEqual(parsed.message, 'Hello');
+});
+
+test('Local knowledge response generator: returns structured guidance for query', () => {
+  const resYellow = generateLocalKnowledgeResponse('Why are my mango leaves yellow?');
+  assert.ok(resYellow.message.includes('Yellowing leaves'));
+  assert.ok(resYellow.message.includes('Quick Assessment'));
+  assert.ok(Array.isArray(resYellow.suggestedActions));
+  assert.ok(resYellow.suggestedActions.length > 0);
+  assert.strictEqual(typeof resYellow.followUpQuestion, 'string');
+});
+
 test('API mock responses structure matches target schema', () => {
   const mockPayload = {
     success: true,
@@ -132,3 +152,4 @@ test('API mock responses structure matches target schema', () => {
   assert.strictEqual(mockPayload.suggestedActions.length, 2);
   assert.strictEqual(typeof mockPayload.followUpQuestion, 'string');
 });
+

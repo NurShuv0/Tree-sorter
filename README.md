@@ -12,6 +12,7 @@ A full-stack plant management application featuring AI-powered tree guidance, di
 | UI Components | Radix UI, Lucide React, Sonner |
 | Routing | React Router v7 |
 | Auth | JWT (djangorestframework-simplejwt) |
+| Disease Classifier | TensorFlow.js (`@tensorflow/tfjs`, `@tensorflow/tfjs-tflite`), EfficientNetV2B0 TFLite (100% on-device WASM) |
 | Django API | Python 3.10+, Django 4.2, Django REST Framework |
 | AI Chat API | Node.js, Express 5, Ollama / Gemini |
 | Database | MySQL 8.0+ (utf8mb4) |
@@ -252,7 +253,21 @@ Output goes to `dist/`.
 
 ---
 
-## 10. Troubleshooting
+## 10. AI Plant Disease Classifier (On-Device WASM)
+
+The application features an **on-device AI Plant Disease Classifier** powered by an **EfficientNetV2B0** TFLite model (`public/plant_disease_classifier_float32.tflite`).
+
+### Key Features & Architecture
+
+- **100% On-Device & Private**: Inference runs locally in the user's browser using `@tensorflow/tfjs-tflite` WebAssembly. No plant photos are ever uploaded to an external server.
+- **38 Canonical Disease & Health Classes**: Covers 14 plant varieties (Apple, Tomato, Potato, Corn, Grape, Bell Pepper, Peach, Cherry, Strawberry, Blueberry, Raspberry, Squash, Soybean, Orange) with detailed diagnostic metadata.
+- **Full Care Guidance**: Each diagnosis provides confidence %, severity rating, visual symptoms/observations, 5-step immediate care plan, long-term prevention tips, and alternate condition candidates.
+- **Integrated AI Assistant**: 1-click option to ask the AI Tree Guide follow-up questions pre-populated with the scan diagnosis.
+- **Cross-Origin Isolation**: Dev server configured with `Cross-Origin-Opener-Policy` (COOP) and `Cross-Origin-Embedder-Policy` (COEP) headers in `vite.config.ts` for WASM multi-threading support.
+
+---
+
+## 11. Troubleshooting
 
 ### MySQL: Access denied
 
@@ -284,7 +299,7 @@ Ensure the Django server is running on port 8000 and `CORS_ALLOWED_ORIGINS` in
 
 ---
 
-## 11. Production Readiness Notes
+## 12. Production Readiness Notes
 
 Before deploying to production:
 

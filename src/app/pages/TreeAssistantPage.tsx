@@ -143,7 +143,12 @@ export function TreeAssistantPage() {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error(`Server returned HTTP ${response.status}`);
+        let serverMsg = `Server returned HTTP ${response.status}`;
+        try {
+          const errBody = await response.json();
+          if (errBody?.message) serverMsg = errBody.message;
+        } catch { /* ignore parse errors */ }
+        throw new Error(serverMsg);
       }
 
       const data = await response.json();
@@ -176,7 +181,7 @@ export function TreeAssistantPage() {
     } catch (err: any) {
       clearTimeout(timeoutId);
       console.error('Error contacting Tree Assistant API:', err);
-      toast.error('Could not reach the assistant. Connection timed out or server failed.');
+      toast.error(err?.message || 'Could not reach the assistant. Please try again.');
 
       setMessages((prev) => {
         const updated = prev.map((m) =>

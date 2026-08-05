@@ -141,10 +141,12 @@ class LoginView(APIView):
 
     permission_classes = [AllowAny]
 
-    _INVALID_CREDENTIALS_RESPONSE = Response(
-        {"success": False, "message": "Invalid login credentials."},
-        status=status.HTTP_401_UNAUTHORIZED,
-    )
+    @staticmethod
+    def _invalid_credentials_response() -> Response:
+        return Response(
+            {"success": False, "message": "Invalid login credentials."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
 
     def post(self, request: Request) -> Response:
         serializer = LoginSerializer(data=request.data)
@@ -173,10 +175,7 @@ class LoginView(APIView):
 
         # Generic rejection – do not reveal whether the account exists.
         if user is None or not user.check_password(password) or not user.is_active:
-            return Response(
-                {"success": False, "message": "Invalid login credentials."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+            return self._invalid_credentials_response()
 
         # Update last_login (also done by SIMPLE_JWT UPDATE_LAST_LOGIN, belt-and-braces).
         from django.contrib.auth import login
@@ -337,21 +336,23 @@ class ForgotPasswordView(APIView):
 
     permission_classes = [AllowAny]
 
-    _GENERIC_RESPONSE = Response(
-        {
-            "success": True,
-            "message": (
-                "If an account exists for that email, "
-                "password reset instructions have been sent."
-            ),
-        }
-    )
+    @staticmethod
+    def _generic_response() -> Response:
+        return Response(
+            {
+                "success": True,
+                "message": (
+                    "If an account exists for that email, "
+                    "password reset instructions have been sent."
+                ),
+            }
+        )
 
     def post(self, request: Request) -> Response:
         serializer = ForgotPasswordSerializer(data=request.data)
         if not serializer.is_valid():
             # Still return generic success to avoid enumeration.
-            return self._GENERIC_RESPONSE
+            return self._generic_response()
 
         email = serializer.validated_data["email"]
 
@@ -359,7 +360,7 @@ class ForgotPasswordView(APIView):
             user = User.objects.get(email__iexact=email, is_active=True)
         except User.DoesNotExist:
             # Account not found – return generic response without revealing that.
-            return self._GENERIC_RESPONSE
+            return self._generic_response()
 
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
@@ -382,7 +383,7 @@ class ForgotPasswordView(APIView):
             fail_silently=True,
         )
 
-        return self._GENERIC_RESPONSE
+        return self._generic_response()
 
 
 # ── Reset Password ────────────────────────────────────────────────────────────
