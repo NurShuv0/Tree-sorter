@@ -1,19 +1,19 @@
-import { useState, useEffect } from 'react';
-import { Droplet, Sun, Lightbulb, TrendingUp } from 'lucide-react';
+import { Droplet, Sun, Lightbulb, TrendingUp, Loader2, MapPin, AlertCircle, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { WeatherCard } from '../components/WeatherCard';
 import { PlantCard } from '../components/PlantCard';
 import { Badge } from '../components/ui/badge';
 import { plants } from '../../data/plants';
-import { getMockWeather, getRecommendedPlants, getWeatherRecommendationReason, getWeatherCareTip } from '../../lib/recommendations';
+import { getRecommendedPlants, getWeatherRecommendationReason, getWeatherCareTip } from '../../lib/recommendations';
 import { getFavorites, toggleFavorite } from '../../lib/favorites';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
+import { useState, useEffect } from 'react';
+import { useWeather } from '../../lib/useWeather';
 
 export function WeatherPage() {
   const [favorites, setFavorites] = useState<number[]>([]);
-  const weather = getMockWeather();
-  const recommendedPlants = getRecommendedPlants(plants, weather);
+  const { weather, loading, error } = useWeather();
 
   useEffect(() => {
     setFavorites(getFavorites());
@@ -25,7 +25,10 @@ export function WeatherPage() {
     toast.success(isFav ? 'Added to favorites!' : 'Removed from favorites');
   };
 
+  const recommendedPlants = weather ? getRecommendedPlants(plants, weather) : [];
+
   const getSeasonalAdvice = () => {
+    if (!weather) return '';
     switch (weather.season) {
       case 'spring':
         return 'Spring is the perfect time to start many vegetables and flowers. Prepare your soil and start planting cool-season crops.';
@@ -41,6 +44,7 @@ export function WeatherPage() {
   };
 
   const getWateringAdvice = () => {
+    if (!weather) return '';
     if (weather.condition === 'rainy') {
       return 'With current rainfall, reduce manual watering. Ensure good drainage to prevent waterlogging.';
     }
@@ -53,14 +57,64 @@ export function WeatherPage() {
     return 'Maintain consistent watering schedule based on plant needs. Check soil moisture before watering.';
   };
 
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loader2 className="size-12 text-primary animate-spin mx-auto" />
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Fetching Live Weather</h2>
+            <p className="text-muted-foreground text-sm mt-1">
+              Allow location access to get real weather for your area
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Error / Location denied state ─────────────────────────────────────────
+  if (error || !weather) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <Card className="max-w-md w-full text-center p-8 border-2 border-destructive/30">
+          <AlertCircle className="size-12 text-destructive mx-auto mb-4" />
+          <h2 className="text-xl font-semibold text-foreground mb-2">Weather Unavailable</h2>
+          <p className="text-muted-foreground text-sm mb-6">
+            {error || 'Could not get weather data.'}<br />
+            Please allow location access in your browser and refresh the page.
+          </p>
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground mb-4">
+            <MapPin className="size-4" />
+            <span>Click the location icon in your browser's address bar to allow access.</span>
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
+          >
+            <RefreshCw className="size-4" />
+            Retry
+          </button>
+        </Card>
+      </div>
+    );
+  }
+
+  // ── Main weather page ──────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2 text-foreground">Weather-Based Recommendations</h1>
-          <p className="text-muted-foreground">
-            Plants perfectly suited to your current weather conditions
+          <p className="text-muted-foreground flex items-center gap-1">
+            <MapPin className="size-4" />
+            Live weather for <span className="font-medium text-foreground ml-1">{weather.location}</span>
+            <span className="ml-2 inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded-full">
+              <span className="size-1.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
+              Live
+            </span>
           </p>
         </div>
 
@@ -127,7 +181,7 @@ export function WeatherPage() {
                       isFavorite={favorites.includes(plant.id)}
                       onToggleFavorite={handleToggleFavorite}
                     />
-                    
+
                     {/* Recommendation Details */}
                     <Card className="mt-3 border-primary/30 bg-primary/5">
                       <CardContent className="p-4">
