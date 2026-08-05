@@ -130,7 +130,7 @@ test('JSON cleaning: removes markdown code blocks and whitespace', () => {
 });
 
 test('Local knowledge response generator: returns structured guidance for query', () => {
-  const resYellow = generateLocalKnowledgeResponse('Why are my mango leaves yellow?');
+  const resYellow = generateLocalKnowledgeResponse('Why are my tree leaves yellow?');
   assert.ok(resYellow.message.includes('Yellowing leaves'));
   assert.ok(resYellow.message.includes('Quick Assessment'));
   assert.ok(Array.isArray(resYellow.suggestedActions));
